@@ -24,7 +24,8 @@ from skimage.feature import local_binary_pattern, graycomatrix, graycoprops
 from tensorflow.keras.models import load_model
 
 app = FastAPI()
-model = load_model("deepfake_model.h5", compile=False)
+model = load_model("deepfake_model.keras", compile=False)
+model.save("deepfake_model.h5")
 
 
 # ---------- Feature Extraction ----------
