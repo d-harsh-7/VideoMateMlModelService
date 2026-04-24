@@ -25,8 +25,7 @@ from tensorflow.keras.models import load_model
 
 app = FastAPI()
 model = load_model("deepfake_model.keras", compile=False)
-model.save("model_saved", save_format="tf")
-model = load_model("model_saved", compile=False)
+
 
 
 # ---------- Feature Extraction ----------
