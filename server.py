@@ -18,6 +18,7 @@ warnings.filterwarnings(
 )
 
 from fastapi import FastAPI, File, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 import numpy as np
 import cv2
 import tempfile
@@ -25,6 +26,17 @@ from skimage.feature import local_binary_pattern, graycomatrix, graycoprops
 from tensorflow.keras.models import load_model
 
 app = FastAPI()
+
+cors_origins = [origin.strip() for origin in os.getenv("CORS_ORIGINS", "*").split(",") if origin.strip()]
+allow_credentials = cors_origins != ["*"]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_origins,
+    allow_credentials=allow_credentials,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 MAX_FRAMES = int(os.getenv("MAX_FRAMES", "40"))
 FRAME_STRIDE = int(os.getenv("FRAME_STRIDE", "2"))
