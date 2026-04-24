@@ -6,6 +6,10 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.10.13
+      - key: MAX_FRAMES
+        value: 30
+      - key: FRAME_STRIDE
+        value: 3
     buildCommand: pip install --upgrade pip && pip install -r requirements.txt
     startCommand: uvicorn server:app --host 0.0.0.0 --port $PORT
     autoDeploy: true
