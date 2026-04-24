@@ -150,7 +150,7 @@ async def predict(file: UploadFile = File(...)):
         if video_path and os.path.exists(video_path):
             os.remove(video_path)
     
-@app.get("/health")
+@app.api_route("/health",methods=["GET","HEAD"])
 async def healthcheck():
     try:
         return {"message": "running fine"}
