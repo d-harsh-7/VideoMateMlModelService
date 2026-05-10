@@ -1,7 +1,6 @@
 import os
 import logging
 import warnings
-import gc
 
 # Set TensorFlow runtime flags before importing TensorFlow.
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
@@ -26,7 +25,6 @@ from skimage.feature import local_binary_pattern, graycomatrix, graycoprops
 from tensorflow.keras.models import load_model
 
 app = FastAPI()
-
 cors_origins = [origin.strip() for origin in os.getenv("CORS_ORIGINS", "*").split(",") if origin.strip()]
 allow_credentials = cors_origins != ["*"]
 
@@ -38,21 +36,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-MAX_FRAMES = int(os.getenv("MAX_FRAMES", "40"))
-FRAME_STRIDE = int(os.getenv("FRAME_STRIDE", "2"))
-UPLOAD_CHUNK_SIZE = 1024 * 1024  # 1MB
-_model = None
-
-
-def get_model():
-    global _model
-    if _model is not None:
-        return _model
-
-    model_path = "deepfake_model.keras" if os.path.exists("deepfake_model.keras") else "deepfake_model.h5"
-    _model = load_model(model_path, compile=False)
-    return _model
-
+model = load_model("deepfake_model.keras", compile=False)
 
 
 # ---------- Feature Extraction ----------
@@ -79,90 +63,63 @@ def extract_glcm(image):
 def get_frames(video_path):
     cap = cv2.VideoCapture(video_path)
     frames = []
-    frame_index = 0
 
     while True:
         ret, frame = cap.read()
         if not ret:
             break
 
-        if FRAME_STRIDE > 1 and (frame_index % FRAME_STRIDE) != 0:
-            frame_index += 1
-            continue
-
         frame = cv2.resize(frame, (128, 128))
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        frames.append(frame.astype(np.float32) / 255.0)
-        frame_index += 1
-
-        if len(frames) >= MAX_FRAMES:
-            break
+        frames.append(frame / 255.0)
 
     cap.release()
-    return np.asarray(frames, dtype=np.float32)
+    return np.array(frames)
 
 
 def get_features(frames):
-    lbp_features = np.asarray([extract_lbp((f * 255).astype("uint8")) for f in frames], dtype=np.float32)
-    glcm_features = np.asarray([extract_glcm((f * 255).astype("uint8")) for f in frames], dtype=np.float32)
+    lbp_features = np.array([extract_lbp((f * 255).astype("uint8")) for f in frames])
+    glcm_features = np.array([extract_glcm((f * 255).astype("uint8")) for f in frames])
 
     glcm_features = glcm_features / (np.max(glcm_features) + 1e-6)
-    features = np.concatenate([lbp_features, glcm_features], axis=1).astype(np.float32)
+    features = np.concatenate([lbp_features, glcm_features], axis=1)
 
     return features
 
 
 def predict_video(video_path):
-    frames = None
-    features = None
-    preds = None
-    try:
-        frames = get_frames(video_path)
-        if len(frames) == 0:
-            return {"error": "No frames extracted"}
+    frames = get_frames(video_path)
+    if len(frames) == 0:
+        return {"error": "No frames extracted"}
 
-        features = get_features(frames)
+    features = get_features(frames)
 
-        model = get_model()
-        preds = model.predict([frames, features], verbose=0, batch_size=min(16, len(frames)))
-        preds = (preds > 0.5).astype(int)
+    preds = model.predict([frames, features])
+    preds = (preds > 0.5).astype(int)
 
-        final_pred = float(np.mean(preds))
-        result = "Fake Video" if final_pred > 0.5 else "Real Video"
+    final_pred = float(np.mean(preds))
+    result = "Fake Video" if final_pred > 0.5 else "Real Video"
 
-        return {
-            "prediction": result,
-            "confidence": final_pred,
-            "frames_shape": tuple(frames.shape),
-            "features_shape": tuple(features.shape),
-        }
-    finally:
-        del frames, features, preds
-        gc.collect()
+    return {
+        "prediction": result,
+        "confidence": final_pred,
+    }
 
 
 # ---------- API ----------
 @app.post("/predict")
 async def predict(file: UploadFile = File(...)):
-    video_path = None
     try:
         with tempfile.NamedTemporaryFile(delete=False) as temp:
-            while True:
-                chunk = await file.read(UPLOAD_CHUNK_SIZE)
-                if not chunk:
-                    break
-                temp.write(chunk)
+            temp.write(await file.read())
             video_path = temp.name
 
         return predict_video(video_path)
 
     except Exception as e:
         return {"error": str(e)}
-    finally:
-        if video_path and os.path.exists(video_path):
-            os.remove(video_path)
     
-@app.api_route("/health",methods=["GET","HEAD"])
+@app.get("/health")
 async def healthcheck():
     try:
         return {"message": "running fine"}
